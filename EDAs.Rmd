@@ -1,0 +1,298 @@
+---
+title: "EDA"
+author: "Qiannan Shen"
+date: "12/8/2021"
+output: html_document
+---
+
+```{r}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+library(hrbrthemes)
+library(viridisLite)
+library(viridis)
+library(dplyr)
+library(ggridges)
+library(corrplot)
+library(car)
+library(rworldmap)
+library(sjmisc)
+library(sjPlot)
+library(lme4)
+library(glmmTMB)
+library(lme4, arm)
+library(lattice)
+library(rstanarm)
+
+source("data_clean.R")
+
+```
+
+# overall
+## mean ~ Region Bar plot
+```{r}
+mean <- happiness %>% group_by(Region) %>% summarise(mean = mean(score))
+ggplot(mean) + 
+  geom_bar(aes(y = Region, x= mean, fill = Region), stat = "identity") +
+  geom_text(aes(y = Region, x= mean, label = round(mean, 3)), size = 3, vjust = 0, hjust = 1) +
+  scale_fill_manual(values = colorRampPalette(brewer.pal(4, "Accent"))(10)) +
+  theme_bw() +
+  # theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5)) +
+  theme(legend.position = "none",
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black")) +
+  ggtitle("Average Happiness Scores in Ten Regions")
+```
+
+## mean ~ Region + year Bar plot
+```{R}
+mean2 <- happiness %>% group_by(Region, year) %>% summarise(mean = mean(score))
+mean2$year <- as.character(mean2$year)
+ggplot(mean2) + 
+  geom_bar(aes(y = Region, x= mean, fill = year), position = "dodge", stat = "identity")+
+  scale_fill_brewer(palette="Accent")+
+  theme_bw() +
+  # theme(axis.text.x = element_text(angle = 90, hjust = 0.5, vjust = 0.5))+
+  theme(panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black")) + 
+  ggtitle("Average yearly Happiness Scores in Ten Regions")
+```
+
+## density plot
+```{r}
+happiness %>%
+  # filter(Region != "Australia and New Zealand") %>%
+  ggplot(aes(x = score, color = Region, fill = Region)) +
+  geom_density(alpha=0.6) +
+  scale_fill_viridis(discrete=TRUE) +
+  scale_color_viridis(discrete=TRUE) +
+  theme_ipsum() +
+  ylab("Density") +
+  xlab("Happiness Score") +
+  theme(axis.title.x = element_text(hjust = "0.5"),
+        axis.title.y = element_text(hjust = "0.5"),
+  ) +
+  ggtitle("Density Plots for Scores from Ten Regions")
+```
+
+## density plot 2
+```{r}
+happiness %>%
+  # filter(Region != "Australia and New Zealand") %>%
+  ggplot(aes(x = score, color = Region, fill = Region)) +
+  geom_density(alpha=0.6) +
+  facet_wrap(~ Region, ncol = 3) +
+  scale_fill_viridis(discrete=TRUE) +
+  scale_color_viridis(discrete=TRUE) +
+  theme_ipsum() +
+  ylab("Density") +
+  xlab("Happiness Score") +
+  theme(legend.position = "none",
+        axis.title.x = element_text(hjust = "0.5"),
+        axis.title.y = element_text(hjust = "0.5"),
+        plot.title = element_text(hjust = "0.5"),
+        panel.spacing = unit(0.5, "lines")) +
+  ggtitle("Density Plots for Scores from Ten Regions")
+```
+
+## density + bar world
+```{r}
+ggplot(happiness, aes(x= score))+
+  geom_histogram(aes(y=..density..), color="black", fill="white", bins = 30)+
+  geom_density(alpha=.2,fill= "pink") +
+  xlab("score") +
+  ylab(paste("density")) +
+  ggtitle("density of score")+
+  theme(legend.position = "none",
+        axis.title.x = element_text(hjust = "0.5"),
+        axis.title.y = element_text(hjust = "0.5"),
+        plot.title = element_text(hjust = "0.5"))
+```
+## density ridges
+```{r}
+library(ggridges)
+ggplot(happiness, aes(x = score, y = Region, fill = Region)) +
+  geom_density_ridges() +
+  theme_ridges() + 
+  scale_fill_brewer(palette="Accent") +
+  theme(legend.position = "none",
+        axis.title.x = element_text(hjust = "0.5"),
+        axis.title.y = element_text(hjust = "0.5"),
+        plot.title = element_text(hjust = "0.5")) + 
+  scale_fill_manual(values = colorRampPalette(brewer.pal(4, "Accent"))(10)) +
+  ggtitle("The Distributions of Happiness Score among Ten Regions")
+```
+
+## boxplot
+```{r}
+happiness %>%
+  ggplot(aes(x = score, y = Region, fill = Region)) + 
+  geom_boxplot(alpha=0.8) +
+  scale_fill_manual(values = colorRampPalette(brewer.pal(4, "Accent"))(10)) +
+  theme_bw() +
+  theme(legend.position="none",
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black")) +
+  ggtitle("Box plot for Happiness among Ten regions")
+```
+
+## corrplot
+```{r}
+library(corrplot)
+par(mfcol=c(1,1))
+happiness$trust <- as.numeric(happiness$trust)
+happiness <- na.omit(happiness)
+corrplot(cor(happiness[,4:10]), tl.col="black", tl.srt=45)
+```
+
+## scatterplot
+```{r}
+my_colors <- brewer.pal(nlevels(as.factor(happiness$Region)), "Set3")
+scatterplotMatrix(data = happiness,
+                  ~ score + social + life_ex + freedom + trust + generosity|Region, 
+                  reg.line="" , smoother="", col=my_colors , 
+                  smoother.args=list(col="grey") , cex=0.1, 
+                  main="Scatter plot with Ten Regions")
+```
+
+## map
+```{r}
+map <- map_data("world")
+colnames(map)[5] <- "Country"
+df <- left_join(happiness, map, by = "Country")
+ggplot(df) +
+  geom_polygon(aes(x = long, y = lat, group = group, fill = score), color = "black", size = 0.5) + 
+  coord_equal() +
+  scale_fill_gradient(breaks=c(3,5,7,9)) +
+  ggtitle("Happiness Score on World Map") +
+  # scale_fill_gradient(low="cadetblue1", high="indianred1") +
+  scale_fill_gradientn(colours = cm.colors(5)) +
+  xlab("longtitude") + ylab("latitude") + labs(fill="Happiness Score") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(hjust = "0.5"))
+```
+
+# variables
+## trend plot
+```{r}
+trend_plot <- function(variable = GDP, name = "GDP"){
+  ggplot(happiness) +
+    geom_smooth(aes(x = {{variable}}, y = score, color = Region, fill = Region), 
+                linetype = "longdash", se =F) +
+    geom_smooth(aes(x = {{variable}}, y = score, linetype = "All"), color = "black") +
+    scale_color_manual(values = colorRampPalette(brewer.pal(4, "Accent"))(10)) +
+    scale_fill_manual(values = colorRampPalette(brewer.pal(4, "Accent"))(10)) +
+    scale_linetype_manual(name = "", values = c("All" = "solid")) +
+    theme_bw() +
+    theme(panel.border = element_blank(),
+          axis.line = element_line(colour = "black"),
+          plot.title = element_text(hjust = "0.5")) +
+    ggtitle(paste(name, "v.s. Scores in Ten Regions", sep = " "))
+}
+trend_plot(GDP, "GDP")
+trend_plot(social, "Social Support")
+trend_plot(life_ex, "Life Expectancy")
+trend_plot(freedom, "Freedom")
+
+trend_plot(trust, "Absence of Corruption (Trust)")
+trend_plot(generosity, "Generosity")
+```
+
+## pplot
+```{r}
+pplot <- function(variable = GDP, name = "GDP"){
+  ggplot(happiness, aes(x = score, y = {{variable}})) +
+    geom_point(alpha = 0.3,aes(color = Region)) +
+    geom_smooth(aes(color = Region), se = F, method = "lm") +
+    scale_fill_brewer(direction = -1) +
+    labs(title = paste("Happiness scores v.s.", name), 
+         x=name,
+         y="score") +
+    theme_bw() + 
+    theme(panel.border = element_blank(),
+          axis.line = element_line(colour = "black"),
+          plot.title = element_text(hjust = "0.5")) 
+}
+pplot(GDP, "GDP")
+pplot(social, "Social Support")
+pplot(life_ex, "Life Expectancy")
+pplot(freedom, "Freedom")
+
+pplot(trust, "Absence of Corruption (Trust)")
+pplot(generosity, "Generosity")
+```
+
+```{r}
+box_plot <- function(variable = GDP, name = "GDP", color_palette = "YlOrRd"){
+  happiness %>%
+    ggplot(aes(x = {{variable}}, y = Region, fill = Region)) + 
+    geom_boxplot(alpha=0.8) +
+    scale_fill_manual(values = colorRampPalette(brewer.pal(4, color_palette))(10)) +
+    theme_bw() +
+    theme(legend.position="none",
+          panel.grid = element_blank(),
+          panel.border = element_blank(),
+          axis.line = element_line(colour = "black")) +
+    ggtitle(paste("Box Plot of", name, "among Ten Regions"))
+}
+box_plot(GDP, "GDP", "YlOrRd")
+box_plot(social, "Social Support", "YlGnBu")
+box_plot(life_ex, "Life Expectancy", "Set3")
+box_plot(freedom, "Freedom", "RdPu")
+box_plot(trust, "Absence of Corruption (Trust)", "Accent")
+box_plot(generosity, "Generosity", "BuPu")
+```
+
+# model fitting
+
+## residual plot
+```{r}
+Model <- lmer(score ~ (GDP + social + life_ex + freedom + trust + generosity | Region) + 
+                GDP + social + life_ex + freedom + trust + generosity, data = happiness)
+plot(Model)
+```
+## qqplot
+```{r}
+qqmath(Model, main='QQ Plot')
+```
+
+## random-effect plot
+```{r}
+plot_model(Model, sort.est = TRUE, show.values = TRUE, value.offset = .3, type = "re") +
+  theme_bw()
+```
+
+## random effect 
+```{r}
+library(reshape)
+ram <- as.data.frame(ranef(Model)$Region)
+ram <-  ram %>%
+  cbind(as.data.frame(unique(happiness$Region))) %>%
+  melt(id = "unique(happiness$Region)")
+colnames(ram)[1]="Region"
+ggplot(ram) +
+  geom_line(aes(x = Region, y = value, group = variable, col = variable)) +
+  theme_bw() +
+  scale_color_manual(values = colorRampPalette(brewer.pal(7, "Set2"))(7))+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank())
+
+```
+## residual vs leverage
+```{r}
+library(lattice)
+
+ggplot(data.frame(lev=hatvalues(Model), pearson=residuals(Model,  type="pearson")), aes(x=lev,y=pearson)) +
+    geom_point() +
+    theme_bw()
+```

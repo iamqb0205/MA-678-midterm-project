@@ -1,0 +1,339 @@
+---
+title: "MA678 Midterm Report"
+author: "Qiannan(Nancy) Shen"
+date: "12/8/2021"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+library(hrbrthemes)
+library(viridisLite)
+library(viridis)
+library(dplyr)
+library(ggridges)
+library(corrplot)
+library(car)
+library(rworldmap)
+library(sjmisc)
+library(sjPlot)
+library(lme4)
+library(glmmTMB)
+library(lme4, arm)
+library(lattice)
+library(rstanarm)
+library(kableExtra)
+library(gridExtra)
+library(cowplot)
+library(reshape)
+
+source("data_clean.R")
+source("EDA.R")
+```
+
+## Abstract
+
+This report is based on the World Happiness Report which is a landmark survey collecting the happiness score by Gallup World Poll from 2015 to 2019. I observed that the happiness score varies in different countries or regions and related variables would have various effects on the happiness score. Therefore, I build a multilevel model based on the ten geographical regions as categories to detect how the predictors affect the scores. The result shows that the effect of the absence of government corruption on happiness score has a distinguishable distinction. This report illustrates the main parts containing the data analysis, model fitting, and discussion of the result. 
+
+## Introduction
+
+The happiness score is a meaningful indicator to explore the satisfaction and euphoria of the society you live in when we are pursuing to be in an imaginary and desirable community the utopia. The happiness score varies in different geographical regions, and the related features have a complicated effect to determine the score. For example, we could easily obverse that the overall happiness and satisfaction level in those developed countries would be higher than those developing countries with poor fundamental facilities and suffering problems. Additionally, the features in different countries like the economic production GDP, social support and family contributions, the life expectancy and health, freedom and restrictions vary and represent multiple effects in different regions. For some features, it would reasonable to think that the higher economic production, social support, and freedom may lead to a higher happiness score, and citizens who lived in these countries would be able to easier feel satisfied. But for some variables, it may make the problem complicated to interpret. So I am interested in how these factors have a different impact on happiness and whether there are some factors that stand out which show an obvious and distinguishable effect.
+
+Hence, the report decides to use the geographical regions as the categorical level to conduct an in-depth analysis and investigate which regions would have a higher happiness score and how the predictors affect happiness in different geographical regions.
+
+## Method
+
+### Data Cleaning and Processing
+
+The data set is from Kaggle: World Happiness Report (<https://www.kaggle.com/unsdsn/world-happiness>). Firstly, I just downloaded the five CSV documents collected the data from 2015 to 2019. Then I found the countries in each document are quite different and the region information is missing in some data frames. So, I use inner_join() to add the region column for exiting countries and combine them into one data frame. I clean the data frame to make it appropriate to process follow-up analysis. Finally, I got a data frame with 762 observations and 10 columns. Here are the explanations of columns:
+
+| Column names | Explanation                                   |
+|:------------:|:----------------------------------------------|
+|     year     | The year of the happiness survey              |
+|   Country    | The name of the country                       |
+|    Region    | The region that the country belongs to        |
+|    score     | The happiness score                           |
+|     GDP      | The score of economic production GDP          |
+|    social    | The score of social and family support        |
+|   life_ex    | The score of life expectancy                  |
+|   freedom    | The score of freedom                          |
+|    trust     | The score of absence of government corruption |
+|  generosity  | The score of generosity                       |
+
+### Exploratory Data Analysis
+
+As categorizing the data into ten region levels, the report in the first place focuses on the distributions of happiness scores in these ten regions illustrated in Figure 1 and observes the difference. It indicates that the mean and distribution vary in different regions. Countries in Australia and New Zealand have the highest happiness score since we know that they are the most livable countries in the world. And Western Europe and North America also rank high in the charts and it is reasonable that most of the countries in these regions are developed with high living standard and their life are peaceful. While, by contrast, Sub-Saharan Africa and Southern Asia have the lowest happiness score because of the low living standard and unstable and turbulent society. 
+
+```{r, echo = F, fig.width=10, fig.height=3.5, fig.cap="Distribution of Happiness Scores in Ten Regions"}
+p1 <- ggplot(happiness, aes(x = score, y = Region, fill = Region)) +
+  geom_density_ridges() +
+  theme_ridges() + 
+  scale_fill_brewer(palette="Accent") +
+  theme(legend.position = "none",
+        axis.title.x = element_text(hjust = "0.5"),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank()) +
+  scale_fill_manual(values = colorRampPalette(brewer.pal(4, "Accent"))(10))
+p2 <- happiness %>%
+  ggplot(aes(x = score, y = Region, fill = Region)) + 
+  geom_boxplot(alpha=0.8) +
+  scale_fill_manual(values = colorRampPalette(brewer.pal(4, "Accent"))(10)) +
+  theme_bw() +
+  theme(legend.position="none",
+        panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.line = element_line(colour = "black"))
+ggdraw() +
+  draw_plot(p2, x = 0, y = 0, width = .6, height = 1) +
+  draw_plot(p1, x = .6, y = 0, width = .4, height = 1)
+```
+
+In the following part, I draw a series of graphs to display the effect of various factors on happiness scores. Figure 2 (a) shows the relationship between economic production GDP and happiness score. It indicates that except Australia and New Zealand and North America, most of the regions have an increasing trend as GDP grows but with different slopes and intercepts. Similarly, as Figure 2 (a), Figure 2 (c) is the relationship between life expectancy and happiness score and Figure 2 (d) is the relationship between freedom and happiness score. most of the regions have positive correlations but with different slopes and intercepts. Figure 2 (b) illustrates the relationship between social support and happiness score. Apparently, the overall slopes and intercepts don't have much difference and have positive correlations.
+
+However, in Figure 2 (e) and Figure 2 (f), which is the relationship between trust, generosity, and happiness score. There is no obvious increasing trend as above graphs. The change in happiness score varies as each unit change on the absence of corruption (trust) or generosity and the change is slight, while three regions still have an apparent increasing trend. 
+
+As expected, the features have an overall positive effect on happiness but are vary in different regions. It interests me that factors may decrease the happiness score in some regions. So I next fit the model and check the details of the effect on each variable in ten regions. 
+
+```{r echo = FALSE,  fig.width=10, fig.height=7, fig.cap="Happiness Scores v.s. predictors in Ten Regions"}
+pplot <- function(variable = GDP, name = "GDP"){
+  ggplot(happiness, aes(x = score, y = {{variable}})) +
+    geom_point(alpha = 0.1,aes(color = Region)) +
+    geom_smooth(aes(color = Region), se = F, method = "lm",lwd = 0.8) +
+    scale_fill_brewer(direction = -1) +
+    labs(x=name,
+         y="score") +
+    theme_bw() + 
+    theme(panel.border = element_blank(),
+          axis.line = element_line(colour = "black"),
+          plot.title = element_text(hjust = "0.5")) 
+}
+p1 <- pplot(GDP, "GDP") + theme(legend.position="none")
+p2 <- pplot(social, "Social Support")
+p3 <- pplot(life_ex, "Life Expectancy") + theme(legend.position="none")
+p4 <- pplot(freedom, "Freedom")
+p5 <- pplot(trust, "Absence of Corruption (Trust)") + theme(legend.position="none")
+p6 <- pplot(generosity, "Generosity")
+
+# ggdraw() +
+#   draw_plot(p1, x = 0, y = 0.5, width = .38, height = 0.5) +
+#   draw_plot(p2, x = .38, y = 0.5, width = .62, height = 0.5) +
+#   draw_plot(p3, x = 0, y = 0, width = .38, height = 0.5) +
+#   draw_plot(p4, x = .38, y = 0, width = .62, height = 0.5) +
+#   draw_plot_label(label = c("(a)", "(b)", "(c)", "(d)"), size = 15,
+#                   x = c(0, 0.38, 0, 0.38), y = c(1, 1, 0.5, 0.5))
+ggdraw() +
+  draw_plot(p1, x = 0, y = 0.6666, width = .38, height = 0.3333) +
+  draw_plot(p2, x = .38, y = 0.6666, width = .62, height = 0.3333) +
+  draw_plot(p3, x = 0, y = 0.3333, width = .38, height = 0.3333) +
+  draw_plot(p4, x = .38, y = 0.3333, width = .62, height = 0.3333) +
+  draw_plot(p5, x = 0, y = 0, width = .38, height = 0.3333) +
+  draw_plot(p6, x = .38, y = 0, width = .62, height = 0.3333) +
+  draw_plot_label(label = c("(a)", "(b)", "(c)", "(d)", "(e)", "(f)"), size = 10,
+                  x = c(0, 0.38, 0, 0.38, 0, 0.38), y = c(1, 1, 0.6666, 0.6666, 0.3333, 0.3333))
+```
+
+### Model Fitting
+Considering different categories, I will use the multilevel model to fit the data. Since the number of variables collected by the yearly happiness survey is reasonable and looks highly relative, I choose to use all six variables in the dataset. And to see the fixed effects below, all variables are significant at alpha = 0.05 level.
+```{r eval=FALSE}
+Model <- lmer(score ~ (GDP + social + life_ex + freedom + trust + generosity | Region) + 
+                GDP + social + life_ex + freedom + trust + generosity, data = happiness)
+```
+|             |Estimate   |Std. Error   |t value     |Pr(>&#124;t&#124;) |
+|:---:        |:---:      |:---:        |:---:       |:---:              |
+|(Intercept)  |2.43       |0.20         |12.34       |6.48e-32           |
+|GDP          |1.26       |0.23         |5.56        |3.74e-08           |
+|social       |0.28       |0.14         |2.03        |4.30e-02           |
+|life_ex      |1.08       |0.24         |4.49        |8.30e-06           |
+|freedom      |1.15       |0.33         |3.49        |5.11e-04           |
+|trust        |0.85       |0.94         |0.90        |3.68e-01           |
+|generosity   |0.55       |0.37         |1.50        |1.33e-01           |
+
+## Result
+
+### Model Coefficients
+As the result above, I am able to get the following formula of fixed effect:
+$$
+\begin{aligned}
+score=2.43+1.26*GDP+0.28*social+1.08*life\_ex\\
++1.15*freedom+0.85*trust+0.55*generosity
+\end{aligned}
+$$
+Then let's take *Southern Asia* as a example. Adding the random effect to slopes and intercept, the estimated formula is:
+$$
+\begin{aligned}
+score=2.90+0.1*GDP+0.38*social+1.56*life\_ex\\
+-0.85*freedom+6.24*trust+0.5*generosity
+\end{aligned}
+$$
+In the fixed affect formula, combining the relationships shown above part, we could conclude that these factors have a positive correlation with happiness score in general. And it is reasonable that with higher economic production, social support, freedom, generosity, and longer life expectancy, citizens would be more likely to be happy and reach sanctification, and the happiness score increase. 
+
+However, when focusing on the random effect, it is interesting to find that the fluctuation of the random effect on the predictor **trust** is bigger than expected. While the other five predictors on different regions vary in a small range. The result indicates that the effect of the absence of government corruption on happiness score has a distinguishable distinction. In detail, especially shown in the *southern Asia* formula, for each 1% increase of the absence of government corruption, the happiness score would have an expected 6.4% increase. In contrast, the absence of corruption would have a negative effect on the happiness score. For instance, the happiness score in Eastern Asia would have an expected 3.67% decrease for each 1% increase of the absence of government corruption. It makes sense that countries in different regions have their own national condition in the political system, government administrative policy, style, and social system, and so forth. So the effect of the absence of corruption varies so much in different regions.
+
+Remarkably, freedom has a negative correlation with the happiness score in *southern Asia* differentiated from the positive coefficient in the other nine regions. These results also appear in the predictor **social** and **generosity** in some countries. 
+
+|                                   |(Intercept)  |GDP     |social  |life_ex  |freedom |trust   |generosity |
+|:---:                              |:---:        |:---:   |:---:   |:---:    |:---:   |:---:   |:---:      |
+|Australia and New Zealand          |2.59         |1.21    |0.15    |1.23     |1.42    |1.88    |0.42       |
+|Central and Eastern Europe         |2.56         |1.17    |0.51    |0.48     |1.61    |-0.24   |1.22       |
+|Eastern Asia                       |1.75         |2.10    |0.28    |0.94     |1.28    |-3.67   |0.29       |
+|Latin America and Caribbean        |2.67         |1.60    |-0.31   |1.57     |2.13    |1.84    |0.00       |
+|Middle East and Northern Africa    |1.61         |1.69    |0.47    |1.78     |1.11    |0.15    |-1.07      |
+|North America                      |2.56         |1.45    |0.03    |1.22     |1.87    |1.14    |0.34       |
+|Southeastern Asia                  |2.22         |1.66    |0.18    |1.05     |1.28    |-0.91   |0.50       |
+|Southern Asia                      |2.90         |0.10    |0.38    |1.56     |-0.85   |6.24    |0.77       |
+|Sub-Saharan Africa                 |2.75         |0.79    |0.61    |0.06     |0.44    |-0.70   |2.25       |
+|Western Europe                     |2.73         |0.78    |0.48    |0.94     |1.23    |2.75    |0.80       |
+
+```{r, echo = F, fig.width=10, fig.height=3, fig.cap="Random Effects Plot"}
+Model <- lmer(score ~ (GDP + social + life_ex + freedom + trust + generosity | Region) + 
+                GDP + social + life_ex + freedom + trust + generosity, data = happiness)
+ram <- as.data.frame(ranef(Model)$Region)
+ram <-  ram %>%
+  cbind(as.data.frame(unique(happiness$Region))) %>%
+  melt(id = "unique(happiness$Region)")
+colnames(ram)[1]="Region"
+ggplot(ram) +
+  geom_line(aes(x = Region, y = value, group = variable, col = variable)) +
+  theme_bw() +
+  scale_color_manual(values = colorRampPalette(brewer.pal(7, "Set2"))(7))+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_blank())
+
+```
+
+### Model Validation
+
+For the model checking part, I mainly draw a residual plot, Q-Q plot, and residual leverage plot which are shown in the Appendix. In the residual plot, all the points are randomly dispersed around the horizontal 0 line which indicated the model is appropriate. In the Q-Q plot, data appears as roughly a straight line and the normality is approved. The residual leverage plot indicates that there is no abnormal point which is good.
+
+## Discussion
+
+In this report, the result of the model is reasonable to some extent. For most features of different regions, it represents a positive correlation with the happiness score. It makes sense that, with higher economic production, the region would have a high living standard and adequate fundamental facilities which improve the quality of their life and lead to euphoria. And the higher degree of freedom, social support and generosity, and longer life expectancy would bring more physical and mental pleasure. However, the result indicates that the effect of the absence of government corruption on happiness score has a distinguishable distinction. Based on my acknowledgment, I could say the different result is caused by the different national conditions of countries. But investigating the specific political system, government administrative policy, and social conditions is another long and complicated story, and is hard to give a clear explanation based on my current knowledge. 
+
+This report also has some limitations. First, the data of the happiness score is from 2015 to 2019 and the happiness score prior to these years is not included. So the model can only apply to the current year happiness study and the effect of time would not show in the model which I think is another important factor to affect happiness. In a further study, we could find an appropriate way to get the data in the previous year and consider the time factor into the model. Second, the trend of variables shown on the EDA part is quite different from the model-fitting result I got and it is worthy to figure out the reason. Third, as we could see that the variables we use are different from the normal measurable data, all the happiness score, degree of freedom, social support are invisible and measurement is ambiguous. This is probably to cause some bias and lead to inaccuracy. So it is important to check whether the way of collecting data and the computing method are appropriate.
+
+\newpage
+## Citation
+
+[1] _World Happiness Report_. https://www.kaggle.com/unsdsn/world-happiness
+
+[2] VAMSI KRISHNA. _Happiness Index and Terrorism!_. https://www.kaggle.com/vamsikrishna/happiness-index-and-terrorism
+
+
+
+\newpage
+## Appendix
+
+### More EDA
+
+```{r echo = FALSE,  fig.width=10, fig.height=7, fig.cap="Variables Box Plot"}
+box_plot <- function(variable = GDP, name = "GDP", color_palette = "YlOrRd"){
+  happiness %>%
+    ggplot(aes(x = {{variable}}, y = Region, fill = Region)) + 
+    geom_boxplot(alpha=0.8) +
+    scale_fill_manual(values = colorRampPalette(brewer.pal(4, color_palette))(10)) +
+    theme_bw() +
+    theme(legend.position="none",
+          panel.grid = element_blank(),
+          panel.border = element_blank(),
+          axis.line = element_line(colour = "black")) +
+    ggtitle(paste("Box Plot of", name, "among Ten Regions"))
+}
+y_delect <- theme(axis.title.y=element_blank(),
+                  axis.text.y=element_blank())
+p1 <- box_plot(GDP, "GDP", "YlOrRd")
+p2 <- box_plot(social, "Social Support", "YlGnBu") + y_delect
+p3 <- box_plot(life_ex, "Life Expectancy", "Set3")
+p4 <- box_plot(freedom, "Freedom", "RdPu") + y_delect
+p5 <- box_plot(trust, "Absence of Corruption (Trust)", "Accent")
+p6 <- box_plot(generosity, "Generosity", "BuPu") + y_delect
+
+ggdraw() +
+  draw_plot(p1, x = 0, y = 0.6666, width = .6, height = 0.3333) +
+  draw_plot(p2, x = .6, y = 0.6666, width = .4, height = 0.3333) +
+  draw_plot(p3, x = 0, y = 0.3333, width = .6, height = 0.3333) +
+  draw_plot(p4, x = .6, y = 0.3333, width = .4, height = 0.3333) +
+  draw_plot(p5, x = 0, y = 0, width = .6, height = 0.3333) +
+  draw_plot(p6, x = .6, y = 0, width = .4, height = 0.3333)
+```
+
+```{R echo = FALSE, fig.width=10, fig.height=4, figure.cap="Happiness Score shown on the map"}
+map <- map_data("world")
+colnames(map)[5] <- "Country"
+df <- left_join(happiness, map, by = "Country")
+ggplot(df) +
+  geom_polygon(aes(x = long, y = lat, group = group, fill = score), color = "black", size = 0.5) + 
+  coord_equal() +
+  scale_fill_gradient(breaks=c(3,5,7,9)) +
+  ggtitle("Happiness Score on World Map") +
+  # scale_fill_gradient(low="cadetblue1", high="indianred1") +
+  scale_fill_gradientn(colours = cm.colors(5)) +
+  xlab("longtitude") + ylab("latitude") + labs(fill="Happiness Score") +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        plot.title = element_text(hjust = "0.5"))
+```
+
+```{r echo=FALSE, fig.width=10, fig.height=10, fig.cap="Distribution and Scatter Plot"}
+my_colors <- brewer.pal(nlevels(as.factor(happiness$Region)), "Set3")
+scatterplotMatrix(data = happiness,
+                  ~ score + social + life_ex + freedom + trust + generosity|Region, 
+                  reg.line="" , smoother="", col=my_colors , 
+                  smoother.args=list(col="grey") , cex=0.1, 
+                  main="Scatter plot with Ten Regions")
+```
+
+\newpage
+### Model Checking
+```{r echo=FALSE, fig.width=10, fig.height=4, fig.cap="Residual Plot and Q-Q Plot"}
+Model <- lmer(score ~ (GDP + social + life_ex + freedom + trust + generosity | Region) + 
+                GDP + social + life_ex + freedom + trust + generosity, data = happiness)
+p1 <- plot(Model)
+p2 <- qqmath(Model)
+# ggdraw() +
+#   draw_plot(p1, x = 0, y = 0, width = .5, height = 1) +
+#   draw_plot(p2, x = .5, y = 0, width = .5, height = 1)
+grid.arrange(p1,p2,nrow=1)
+```
+
+```{r echo=FALSE, fig.width=10, fig.height=4, fig.cap="Residuals v.s. Leverage Plot"}
+Model <- lmer(score ~ (GDP + social + life_ex + freedom + trust + generosity | Region) + 
+                GDP + social + life_ex + freedom + trust + generosity, data = happiness)
+ggplot(data.frame(lev=hatvalues(Model), pearson=residuals(Model,  type="pearson")), aes(x=lev,y=pearson)) +
+    geom_point() +
+    theme_bw()
+```
+
+\newpage
+### Full Results
+**Random effects of model**
+```{r echo=FALSE}
+Model <- lmer(score ~ (GDP + social + life_ex + freedom + trust + generosity | Region) + 
+                GDP + social + life_ex + freedom + trust + generosity, data = happiness)
+ranef(Model)
+```
+**Fixed effects of model**
+```{r echo=FALSE}
+Model <- lmer(score ~ (GDP + social + life_ex + freedom + trust + generosity | Region) + 
+                GDP + social + life_ex + freedom + trust + generosity, data = happiness)
+fixef(Model)
+```
+**Coefficients of model**
+```{r echo=FALSE}
+Model <- lmer(score ~ (GDP + social + life_ex + freedom + trust + generosity | Region) + 
+                GDP + social + life_ex + freedom + trust + generosity, data = happiness)
+coef(Model)
+```
+
+```{r echo=FALSE, fig.width=12, fig.height=6, fig.cap="Random Effect Plot"}
+plot_model(Model, sort.est = TRUE, show.values = TRUE, value.offset = .3, type = "re") +
+  theme_bw()
+```
